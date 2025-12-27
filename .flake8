@@ -1,0 +1,8 @@
+[flake8]
+max-line-length=119
+ignore=E203,E266,W503
+exclude=.git,.venv, Lib
+select=F,B,C,D,E,W,T
+extend-ignore=W504,F401
+show-source=true
+statistics=true
