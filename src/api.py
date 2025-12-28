@@ -1,26 +1,36 @@
-from dotenv import load_dotenv
 import requests
-
-load_dotenv()
+from typing import Optional, List, Dict
 
 
 class HhApiClient:
+    """Клиент для работы с API hh.ru."""
+
     def __init__(self):
-        self.base_url = 'https://api.hh.ru/'
+        self.base_url = "https://api.hh.ru/"
 
-    def get_company(self, company_id):
-        response = requests.get(f'{self.base_url}/employers/{company_id}')
-        return response.json() if response.status_code == 200 else None
+    def get_company(self, company_id: str) -> Optional[Dict]:
+        """Получает данные о компании по её ID."""
+        response = requests.get(f"{self.base_url}/employers/{company_id}")
+        if response.ok:
+            return response.json()
+        return None
 
-    def get_vacancies_by_company(self, company_id):
+    def get_vacancies_by_company(self, company_id: str) -> List[Dict]:
+        """Получает список вакансий для определенной компании."""
         vacancies = []
         page = 0
+        per_page = 100
         while True:
-            params = {'employer_id': company_id, 'page': page}
-            response = requests.get(f'{self.base_url}/vacancies', params=params)
-            data = response.json()
-            vacancies.extend(data['items'])
-            if len(data['items']) < 100 or not data['more']:
+            response = requests.get(
+                f"{self.base_url}/vacancies",
+                params={"employer_id": company_id, "per_page": per_page, "page": page},
+            )
+            if response.ok:
+                data = response.json()
+                vacancies.extend(data["items"])
+                if len(data["items"]) < per_page:
+                    break
+                page += 1
+            else:
                 break
-            page += 1
         return vacancies

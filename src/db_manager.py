@@ -1,142 +1,101 @@
-import os
-from dotenv import load_dotenv
 import psycopg2
 from contextlib import closing
-
-load_dotenv()
+from typing import Dict
+from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
 
 
 class DBManager:
-    def __init__(self):
-        """Инициализация менеджера базы данных."""
+    """Класс для работы с базой данных PostgreSQL."""
+
+    def __init__(
+        self, db_name: str, db_host: str, db_port: str, db_user: str, db_pass: str
+    ):
         self.conn_params = {
-            'dbname': os.getenv('DB_NAME'),
-            'user': os.getenv('DB_USER'),
-            'password': os.getenv('DB_PASSWORD'),
-            'host': os.getenv('DB_HOST'),
-            'port': os.getenv('DB_PORT')
+            "dbname": db_name,
+            "user": db_user,
+            "password": db_pass,
+            "host": db_host,
+            "port": db_port,
         }
 
-    def create_tables(self):
-        """Создание необходимых таблиц в базе данных."""
+    def create_database(self) -> None:
+        """Создает базу данных PostgreSQL, если она не существует."""
+        temp_conn_params = self.conn_params.copy()
+        temp_conn_params["dbname"] = "postgres"
+        with closing(psycopg2.connect(**temp_conn_params)) as conn:
+            conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
+            with conn.cursor() as cur:
+                cur.execute(f"CREATE DATABASE {self.conn_params['dbname']};")
+
+    def create_tables(self) -> None:
+        """Создает таблицы для хранения данных о компаниях и вакансиях."""
         with closing(psycopg2.connect(**self.conn_params)) as conn:
             with conn.cursor() as cur:
-                cur.execute("""
+                cur.execute(
+                    """
                     CREATE TABLE IF NOT EXISTS companies (
                         id SERIAL PRIMARY KEY,
                         name VARCHAR(255),
                         description TEXT
                     );
-                """)
-
-                cur.execute("""
+                """
+                )
+                cur.execute(
+                    """
                     CREATE TABLE IF NOT EXISTS vacancies (
                         id SERIAL PRIMARY KEY,
                         title VARCHAR(255),
-                        salary INT,
+                        salary INTEGER,
                         link VARCHAR(255),
-                        company_id INT REFERENCES companies(id)
+                        company_id INTEGER REFERENCES companies(id)
                     );
-                """)
-
+                """
+                )
             conn.commit()
 
-    def insert_company(self, company_data):
-        """Вставка данных о компании в таблицу companies."""
+    def insert_company(self, company_data: Dict) -> int:
+        """Вставляет запись о компании в базу данных."""
         with closing(psycopg2.connect(**self.conn_params)) as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     """
                     INSERT INTO companies (name, description) VALUES (%s, %s) RETURNING id;
                     """,
-                    (company_data['name'], company_data['description'])
+                    (company_data["name"], company_data.get("description")),
                 )
-                new_company_id = cur.fetchone()[0]
-            conn.commit()
-            return new_company_id
+                return cur.fetchone()[0]
 
-    def insert_vacancy(self, vacancy_data, company_id):
-        """Вставка данных о вакансии в таблицу vacancies."""
+    def insert_vacancy(self, vacancy_data: Dict, company_id: int) -> None:
+        """Вставляет запись о вакансии в базу данных."""
+        title = vacancy_data.get("name") or ""
+        salary = vacancy_data.get("salary", {}).get("from") or None
+        link = vacancy_data.get("alternate_url") or ""
+
         with closing(psycopg2.connect(**self.conn_params)) as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    INSERT INTO vacancies (title, salary, link, company_id) VALUES (%s, %s, %s, %s);
+                    INSERT INTO vacancies (title, salary, link, company_id) 
+                    VALUES (%s, %s, %s, %s);
                     """,
-                    (vacancy_data['title'], vacancy_data['salary'], vacancy_data['link'], company_id)
+                    (title, salary, link, company_id),
                 )
             conn.commit()
 
-    def get_companies_and_vacancies_count(self):
-        """Возвращает список всех компаний и количество вакансий у каждой компании."""
+    def clear_database(self) -> None:
+        """Очищает таблицы в базе данных."""
         with closing(psycopg2.connect(**self.conn_params)) as conn:
             with conn.cursor() as cur:
-                cur.execute("""
-                    SELECT companies.name, COUNT(vacancies.id) AS vacancies_count
-                    FROM companies LEFT JOIN vacancies ON companies.id = vacancies.company_id
-                    GROUP BY companies.id;
-                """)
-                rows = cur.fetchall()
-                return [(row[0], row[1]) for row in rows]
+                cur.execute("DELETE FROM vacancies;")
+                cur.execute("DELETE FROM companies;")
+            conn.commit()
 
-    def get_all_vacancies(self):
-        """Возвращает список всех вакансий с названием компании,
-         названием вакансии, зарплатой и ссылкой на вакансию."""
+    def get_statistics(self) -> Dict:
+        """Возвращает статистику по количеству записей."""
         with closing(psycopg2.connect(**self.conn_params)) as conn:
             with conn.cursor() as cur:
-                cur.execute("""
-                    SELECT companies.name, vacancies.title, vacancies.salary, vacancies.link
-                    FROM vacancies INNER JOIN companies ON vacancies.company_id = companies.id;
-                """)
-                rows = cur.fetchall()
-                return [
-                    {"Company": row[0],
-                     "Vacancy Title": row[1],
-                     "Salary": row[2],
-                     "Link": row[3]} for row in rows
-                ]
-
-    def get_avg_salary(self):
-        """Возвращает среднюю зарплату по всем вакансиям."""
-        with closing(psycopg2.connect(**self.conn_params)) as conn:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    SELECT AVG(salary)::INTEGER FROM vacancies;
-                """)
-                avg_salary = cur.fetchone()[0]
-                return avg_salary
-
-    def get_vacancies_with_higher_salary(self):
-        """Возвращает список вакансий с зарплатой выше среднего уровня."""
-        average_salary = self.get_avg_salary()
-        with closing(psycopg2.connect(**self.conn_params)) as conn:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    SELECT companies.name, vacancies.title, vacancies.salary, vacancies.link
-                    FROM vacancies INNER JOIN companies ON vacancies.company_id = companies.id
-                    WHERE vacancies.salary > %s;
-                """, (average_salary,))
-                rows = cur.fetchall()
-                return [
-                    {"Company": row[0],
-                     "Vacancy Title": row[1],
-                     "Salary": row[2],
-                     "Link": row[3]} for row in rows
-                ]
-
-    def get_vacancies_with_keyword(self, keyword):
-        """Возвращает список вакансий, содержащих указанное ключевое слово в названии."""
-        with closing(psycopg2.connect(**self.conn_params)) as conn:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    SELECT companies.name, vacancies.title, vacancies.salary, vacancies.link
-                    FROM vacancies INNER JOIN companies ON vacancies.company_id = companies.id
-                    WHERE LOWER(vacancies.title) LIKE LOWER(%s);
-                """, ('%' + keyword + '%',))
-                rows = cur.fetchall()
-                return [
-                    {"Company": row[0],
-                     "Vacancy Title": row[1],
-                     "Salary": row[2],
-                     "Link": row[3]} for row in rows
-                ]
+                cur.execute("SELECT COUNT(*) FROM companies;")
+                num_companies = cur.fetchone()[0]
+                cur.execute("SELECT COUNT(*) FROM vacancies;")
+                num_vacancies = cur.fetchone()[0]
+        return {"num_companies": num_companies, "num_vacancies": num_vacancies}
