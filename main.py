@@ -2,60 +2,69 @@ from src.api import HhApiClient
 from src.db_manager import DBManager
 from dotenv import load_dotenv
 import os
+import argparse
 import logging
 
+# Настраиваем логгер
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s [%(levelname)s]: %(message)s"
 )
 logger = logging.getLogger(__name__)
 
+# Загружаем переменные окружения из .env
 load_dotenv()
 
 
 def main():
     """Главная функция проекта."""
-    logger.info("Начало работы...")
+    parser = argparse.ArgumentParser(
+        description="Сбор данных о вакансиях с hh.ru и хранение в PostgreSQL."
+    )
+    parser.add_argument(
+        "--action",
+        choices=["load", "show", "clean"],
+        help="Действие: load - загрузить данные, show - "
+        "показать статистику, clean - очистить базу данных.",
+    )
+    args = parser.parse_args()
 
-    # Загружаем настройки из .env
+    # Читаем параметры из переменных окружения
     db_name = os.getenv("DB_NAME")
     db_host = os.getenv("DB_HOST")
     db_port = os.getenv("DB_PORT")
     db_user = os.getenv("DB_USER")
     db_pass = os.getenv("DB_PASSWORD")
 
-    # Создаем экземпляр менеджеров
+    # Создаем экземпляр менеджера базы данных
     db_manager = DBManager(db_name, db_host, db_port, db_user, db_pass)
+
+    # Создаем клиент API hh.ru
     api_client = HhApiClient()
 
-    # Меню взаимодействия с пользователем
-    while True:
-        print("\nВыберите действие:")
-        print("1. Загрузить данные о компаниях и вакансиях")
-        print("2. Показать статистику по данным")
-        print("3. Очистить базу данных")
-        print("4. Выйти из программы")
-        choice = input("Ваш выбор: ").strip().lower()
-
-        if choice == "1":
-            load_data(api_client, db_manager)
-        elif choice == "2":
-            show_statistics(db_manager)
-        elif choice == "3":
-            clear_database(db_manager)
-        elif choice == "4":
-            logger.info("Программа завершена.")
-            break
-        else:
-            print("Неверный выбор. Выберите пункт из меню.")
+    # Действия в зависимости от выбранного параметра
+    if args.action == "load":
+        logger.info("Начинаем загрузку данных...")
+        load_data(api_client, db_manager)
+    elif args.action == "show":
+        logger.info("Получаем статистику...")
+        show_statistics(db_manager)
+    elif args.action == "clean":
+        logger.info("Очищаем базу данных...")
+        clear_database(db_manager)
+    else:
+        logger.error("Не выбрано действие. Используйте аргумент '--help' для справки.")
 
 
 def load_data(api_client: HhApiClient, db_manager: DBManager):
-    """Загружает данные о компаниях и вакансиях."""
-    logger.info("Начинаем загрузку данных...")
+    """Загружает данные о компаниях и вакансиях в базу данных."""
+    # Список реальных ID компаний с hh.ru
+    company_ids = ["1740", "78638", "3529"]  # Добавьте сюда реальные ID компаний
 
-    # Пример реальных ID компаний с hh.ru
-    company_ids = ["1740", "78638", "3529"]
+    # Начинаем создавать базу данных и таблицы
+    db_manager.create_database()
+    db_manager.create_tables()
 
+    # Загружаем данные
     for company_id in company_ids:
         company_data = api_client.get_company(company_id)
         if company_data:
@@ -72,21 +81,16 @@ def load_data(api_client: HhApiClient, db_manager: DBManager):
 
 
 def show_statistics(db_manager: DBManager):
-    """Показывает статистику по данным в базе."""
-    stats = db_manager.get_statistics()
-    print("\nСтатистика по данным:")
-    print(f"- Количество компаний: {stats['num_companies']}")
-    print(f"- Количество вакансий: {stats['num_vacancies']}\n")
+    """Показывает статистику по данным в базе данных."""
+    statistics = db_manager.get_statistics()
+    print(f"Количество компаний: {statistics['num_companies']}")
+    print(f"Количество вакансий: {statistics['num_vacancies']}")
 
 
 def clear_database(db_manager: DBManager):
-    """Очищает всю информацию из базы данных."""
-    confirm = input("Вы точно хотите очистить базу данных? (yes/no): ").strip().lower()
-    if confirm == "yes":
-        db_manager.clear_database()
-        print("База данных очищена.")
-    else:
-        print("Операция отменена.")
+    """Очищает базу данных."""
+    db_manager.clear_database()
+    logger.info("База данных очищена.")
 
 
 if __name__ == "__main__":

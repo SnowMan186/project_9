@@ -5,6 +5,7 @@ import os
 import psycopg2
 from contextlib import closing
 
+
 load_dotenv()
 
 

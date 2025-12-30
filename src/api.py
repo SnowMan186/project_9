@@ -3,7 +3,10 @@ from typing import Optional, List, Dict
 
 
 class HhApiClient:
-    """Клиент для работы с API hh.ru."""
+    """Клиент для взаимодействия с публичным API hh.ru.
+    Предоставляет методы для получения информации о компаниях
+    и вакансиях с сайта hh.ru.
+    """
 
     def __init__(self):
         self.base_url = "https://api.hh.ru/"
